@@ -65,7 +65,15 @@ SC.View.reopen(
       throw "Must provide options hash or duration!";
     }
 
-    if (callback) { options.callback = callback; }
+    if (callback) { 
+      callback.hasAlreadyBeenCalled = false;
+      options.callback = function() { 
+        if (!callback.hasAlreadyBeenCalled) {
+          callback.call();
+          callback.hasAlreadyBeenCalled = true; 
+        }
+      }
+    }
 
     var timing = options.timing;
     if (timing) {
@@ -100,7 +108,13 @@ SC.View.reopen(
     }
 
     // now set adjusted layout
-    if (didChange) { this.set('layout', layout) ; }
+    if (didChange) { 
+      this.set('layout', layout) ; 
+      
+      if (!SC.none(options.callback)) {
+        options.callback.invokeLater((!SC.empty(options.duration) ? options.duration : 0) + 50);
+      }
+    }
 
     return this ;
   },
