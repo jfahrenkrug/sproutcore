@@ -46,7 +46,9 @@ SC.View.reopen(
     @returns {SC.View} receiver
   */
   animate: function(keyOrHash, valueOrOptions, optionsOrCallback, callback) {
-    var hash, options;
+    var hash, options, view;
+    
+    view = this;
 
     if (typeof keyOrHash === SC.T_STRING) {
       hash = {};
@@ -66,13 +68,23 @@ SC.View.reopen(
     }
 
     if (callback) { 
-      callback.hasAlreadyBeenCalled = false;
-      options.callback = function() { 
-        if (!callback.hasAlreadyBeenCalled) {
-          callback.call();
-          callback.hasAlreadyBeenCalled = true; 
+      // We wrap the callback in another function so we can track if the 
+      // callback has already been run or not. Tracking it on the actual
+      // passed-in callback function is dirty, since it could have been
+      // used somewhere else as well, or could get passed in again later.
+      
+      var callback_wrapper = function() {
+        callback.apply(null, arguments);
+      }
+      
+      callback_wrapper.hasAlreadyBeenCalledForProperty = {};
+      options.callback = function(data) { 
+        if (!callback_wrapper.hasAlreadyBeenCalledForProperty[data.propertyName]) {
+          callback_wrapper.apply(null, arguments);
+          callback_wrapper.hasAlreadyBeenCalledForProperty[data.propertyName] = true; 
         }
       }
+      
     }
 
     var timing = options.timing;
@@ -86,6 +98,7 @@ SC.View.reopen(
     }
 
     var layout = SC.clone(this.get('layout')), didChange = NO, value, cur, animValue, curAnim, key;
+    var callbackCalls = [];
 
     if (!layout.animate) { layout.animate = {}; }
 
@@ -104,6 +117,16 @@ SC.View.reopen(
         didChange = YES;
         layout.animate[key] = options;
         layout[key] = value;
+        
+        if (!SC.none(options.callback)) {
+          callbackCalls.push(function() {
+            var currentKey = key;
+            
+            return function() {
+              options.callback.call(null, {propertyName: currentKey, isCancelled: NO, view: view, event: "failover-callback"})
+            };
+          }());
+        }
       }
     }
 
@@ -112,7 +135,13 @@ SC.View.reopen(
       this.set('layout', layout) ; 
       
       if (!SC.none(options.callback)) {
-        options.callback.invokeLater((!SC.empty(options.duration) ? options.duration : 0) + 50);
+        // We can't fully rely on webkit firing the transitionend event. So we
+        // invoke the callback ourselves, with a security mechanism in place to
+        // prevent it from being called twice.
+        
+        for (i = 0; i < callbackCalls.length; i++) {
+          callbackCalls[i].invokeLater((!SC.empty(options.duration) ? options.duration : 0) + 100);
+        }
       }
     }
 
